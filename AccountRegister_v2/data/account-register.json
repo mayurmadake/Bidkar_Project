@@ -1,0 +1,84 @@
+{
+  "companies": [
+    {
+      "id": "company-sk",
+      "name": "SK enterprises",
+      "owner_name": "SK Enterprise Owner",
+      "address": "SK enterprises site",
+      "opening_balance": 10000,
+      "opening_balance_date": "2026-07-15",
+      "created_at": "2026-07-12T08:10:46.643Z"
+    },
+    {
+      "id": "company-rk",
+      "name": "RK enterprises",
+      "owner_name": "RK Enterprise Owner",
+      "address": "RK enterprises site",
+      "opening_balance": 49999.98,
+      "opening_balance_date": "2026-07-15",
+      "created_at": "2026-07-12T08:10:46.644Z"
+    },
+    {
+      "id": "company-ar",
+      "name": "AR enterprises",
+      "owner_name": "AR Enterprise Owner",
+      "address": "AR enterprises site",
+      "opening_balance": 40000,
+      "opening_balance_date": "2026-07-15",
+      "created_at": "2026-07-12T08:10:46.644Z"
+    }
+  ],
+  "vendors": [
+    {
+      "name": "p1",
+      "address": "pune",
+      "id": "ec710a2a-71a2-42d5-a2b2-b9692f20b128",
+      "created_at": "2026-07-12T08:42:15.668Z"
+    }
+  ],
+  "sites": [
+    {
+      "company_id": "company-sk",
+      "name": "pune",
+      "address": "pune",
+      "id": "0e1cfa16-b6db-41f2-8187-728b91e38020",
+      "created_at": "2026-07-12T08:42:05.231Z"
+    }
+  ],
+  "transactions": [
+    {
+      "date": "2026-07-04",
+      "amount": 2300,
+      "transaction_type": "cash",
+      "entry_type": "credit",
+      "company_id": "company-rk",
+      "vendor_id": "ec710a2a-71a2-42d5-a2b2-b9692f20b128",
+      "site_id": "0e1cfa16-b6db-41f2-8187-728b91e38020",
+      "upi_transaction_id": null,
+      "cheque_number": null,
+      "cheque_date": null,
+      "cheque_status": "pending",
+      "description": "material",
+      "id": "0942dc2f-9461-4f0e-81d9-cc58053ab4fc",
+      "created_by": "file-admin",
+      "created_at": "2026-07-12T08:53:00.049Z"
+    },
+    {
+      "date": "2026-07-12",
+      "amount": 500,
+      "transaction_type": "cash",
+      "entry_type": "credit",
+      "company_id": "company-sk",
+      "vendor_id": "ec710a2a-71a2-42d5-a2b2-b9692f20b128",
+      "site_id": "0e1cfa16-b6db-41f2-8187-728b91e38020",
+      "upi_transaction_id": null,
+      "cheque_number": null,
+      "cheque_date": null,
+      "cheque_status": "pending",
+      "description": "lunch",
+      "id": "804bc671-81ec-4381-ac45-50e95a3620d3",
+      "created_by": "file-admin",
+      "created_at": "2026-07-12T08:42:21.609Z"
+    }
+  ]
+}
