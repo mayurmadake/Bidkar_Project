@@ -6,3 +6,5 @@ tsconfig.tsbuildinfo
 out
 dist
 npm-debug.log*
+data/account-register.json
+data/activity-logs/

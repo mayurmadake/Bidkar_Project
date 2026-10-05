@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import type { Company, Transaction, Vendor, Site } from "./types";
 
@@ -9,8 +9,10 @@ export type LocalDatabase = {
   transactions: Transaction[];
 };
 
-const dataDirectory = path.join(process.cwd(), "data");
-const databasePath = path.join(dataDirectory, "account-register.json");
+const databasePath = process.env.ACCOUNT_REGISTER_DB_PATH
+  ? path.resolve(process.env.ACCOUNT_REGISTER_DB_PATH)
+  : path.join(process.cwd(), "data", "account-register.json");
+const dataDirectory = path.dirname(databasePath);
 
 function makeCompany(id: string, name: string, owner_name: string, address: string): Company {
   return {
@@ -41,15 +43,18 @@ export function emptyDatabase(): LocalDatabase {
 
 export async function readDatabase(): Promise<LocalDatabase> {
   try {
-    const content = await readFile(databasePath, "utf8");
+    const content = (await readFile(databasePath, "utf8")).replace(/^\uFEFF/, "");
     const parsed = JSON.parse(content) as Partial<LocalDatabase>;
     return {
-      companies: parsed.companies?.length ? parsed.companies : seedCompanies,
+      companies: Array.isArray(parsed.companies) ? parsed.companies : seedCompanies,
       vendors: parsed.vendors || [],
       sites: parsed.sites || [],
       transactions: parsed.transactions || []
     };
-  } catch {
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
+    if (code !== "ENOENT") throw error;
+
     const database = emptyDatabase();
     await writeDatabase(database);
     return database;
@@ -58,5 +63,7 @@ export async function readDatabase(): Promise<LocalDatabase> {
 
 export async function writeDatabase(database: LocalDatabase) {
   await mkdir(dataDirectory, { recursive: true });
-  await writeFile(databasePath, JSON.stringify(database, null, 2), "utf8");
+  const temporaryPath = `${databasePath}.tmp`;
+  await writeFile(temporaryPath, JSON.stringify(database, null, 2), "utf8");
+  await rename(temporaryPath, databasePath);
 }

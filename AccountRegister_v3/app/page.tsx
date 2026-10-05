@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Download, FileText, Pencil, Plus, Printer, RefreshCw, Save, Trash2, X } from "lucide-react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, FileText, LogOut, Pencil, Plus, Printer, RefreshCw, Save, Trash2, Upload, X } from "lucide-react";
 import { formatCurrency, todayIso } from "@/lib/accounting";
-import type { Company, Site, Transaction, Vendor } from "@/lib/types";
+import type { ActivityLog, ActivityLogAction, Company, Site, Transaction, Vendor } from "@/lib/types";
 
 type LocalDatabase = {
   companies: Company[];
@@ -29,14 +29,55 @@ function cleanDisplayValue(value: string | null | undefined) {
   return value === "-" ? "" : value || "";
 }
 
+function transactionActivityDetails(entry: Pick<Transaction, "date" | "amount" | "company_name" | "receiver" | "site_name" | "work">) {
+  return [
+    `Date: ${entry.date}`,
+    `Amount: ${Number(entry.amount || 0).toFixed(2)}`,
+    entry.company_name ? `Company: ${entry.company_name}` : "",
+    entry.receiver ? `Receiver: ${entry.receiver}` : "",
+    entry.site_name ? `Site: ${entry.site_name}` : "",
+    entry.work ? `Work: ${entry.work}` : ""
+  ].filter(Boolean).join(" | ");
+}
+
+function createActivityLog(
+  action: ActivityLogAction,
+  label: string,
+  details: string,
+  transaction?: Transaction
+): ActivityLog {
+  return {
+    id: createId(),
+    action,
+    label,
+    details,
+    transaction_id: transaction?.id || null,
+    amount: transaction ? Number(transaction.amount || 0) : null,
+    company_name: transaction?.company_name || null,
+    receiver: transaction?.receiver || null,
+    site_name: transaction?.site_name || null,
+    created_by: "file-admin",
+    created_at: new Date().toISOString()
+  };
+}
+
 const transactionLimitOptions = [20, 40, 60, 80, 100];
 
+function reportFileName() {
+  const date = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `AccountRegister_${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
 export default function Home() {
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const activityLogDateInputRef = useRef<HTMLInputElement>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState("");
   const [filters, setFilters] = useState({ companyName: "", receiver: "", siteName: "", start: "", end: "" });
   const [transactionLimit, setTransactionLimit] = useState(20);
@@ -82,10 +123,11 @@ export default function Home() {
   }, [companies, filters, sites, transactions, vendors]);
 
   const transactionPageCount = Math.max(1, Math.ceil(enrichedTransactions.length / transactionLimit));
-  const visibleTransactions = useMemo(() => {
-    const start = (transactionPage - 1) * transactionLimit;
-    return enrichedTransactions.slice(start, start + transactionLimit);
-  }, [enrichedTransactions, transactionLimit, transactionPage]);
+  const firstVisibleTransactionIndex = (transactionPage - 1) * transactionLimit;
+  const reportTotalAmount = useMemo(
+    () => enrichedTransactions.reduce((total, entry) => total + Number(entry.amount || 0), 0),
+    [enrichedTransactions]
+  );
 
   useEffect(() => {
     async function initialize() {
@@ -142,6 +184,25 @@ export default function Home() {
     setTransactions(next.transactions);
   }
 
+  async function writeActivityLog(log: ActivityLog) {
+    const response = await fetch("/api/activity-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(log)
+    });
+
+    if (!response.ok) throw new Error("Could not write activity log.");
+  }
+
+  async function tryWriteActivityLog(log: ActivityLog) {
+    try {
+      await writeActivityLog(log);
+      return "";
+    } catch {
+      return "Action saved, but activity log could not be written.";
+    }
+  }
+
   async function addTransaction(event: FormEvent) {
     event.preventDefault();
     const companyName = entryForm.company_name.trim();
@@ -172,8 +233,11 @@ export default function Home() {
     };
     next.transactions = [payload, ...next.transactions];
     await persist(next);
+    const logMessage = await tryWriteActivityLog(
+      createActivityLog("transaction_created", "Added transaction", transactionActivityDetails(payload), payload)
+    );
     setEntryForm((current) => ({ ...current, amount: "", company_name: "", receiver: "", site_name: "", work: "" }));
-    setMessage("");
+    setMessage(logMessage);
   }
 
   function startEditTransaction(entry: Transaction) {
@@ -211,44 +275,176 @@ export default function Home() {
     const siteName = editForm.site_name.trim();
     const work = editForm.work.trim();
     const next = await fetchDatabase();
+    const original = next.transactions.find((entry) => entry.id === id);
+
+    if (!original) {
+      setMessage("Transaction could not be found.");
+      return;
+    }
+
+    const updatedTransaction: Transaction = {
+      ...original,
+      date: editForm.date,
+      amount,
+      company_name: companyName,
+      receiver,
+      site_name: siteName,
+      work,
+      company_id: companyName,
+      vendor_id: receiver,
+      site_id: siteName,
+      description: work || null
+    };
+
     next.transactions = next.transactions.map((entry) => {
       if (entry.id !== id) return entry;
-      return {
-        ...entry,
-        date: editForm.date,
-        amount,
-        company_name: companyName,
-        receiver,
-        site_name: siteName,
-        work,
-        company_id: companyName,
-        vendor_id: receiver,
-        site_id: siteName,
-        description: work || null
-      };
+      return updatedTransaction;
     });
     await persist(next);
+    const logMessage = await tryWriteActivityLog(
+      createActivityLog(
+        "transaction_updated",
+        "Edited transaction",
+        `Before: ${transactionActivityDetails(original)} | After: ${transactionActivityDetails(updatedTransaction)}`,
+        updatedTransaction
+      )
+    );
     cancelEditTransaction();
-    setMessage("");
+    setMessage(logMessage);
   }
 
   async function deleteTransaction(id: string) {
     if (!confirm("Delete this transaction?")) return;
     const next = await fetchDatabase();
+    const deletedTransaction = next.transactions.find((entry) => entry.id === id);
+
+    if (!deletedTransaction) {
+      setMessage("Transaction could not be found.");
+      return;
+    }
+
     next.transactions = next.transactions.filter((entry) => entry.id !== id);
     await persist(next);
+    const logMessage = await tryWriteActivityLog(
+      createActivityLog("transaction_deleted", "Deleted transaction", transactionActivityDetails(deletedTransaction), deletedTransaction)
+    );
+    setMessage(logMessage);
   }
 
-  function exportJson() {
-    const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), companies, vendors, sites, transactions }, null, 2)], {
-      type: "application/json"
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `account-register-${todayIso()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  async function printReport() {
+    const appliedFilters = [
+      filters.companyName ? `Company: ${filters.companyName}` : "",
+      filters.receiver ? `Receiver: ${filters.receiver}` : "",
+      filters.siteName ? `Site: ${filters.siteName}` : "",
+      filters.start ? `Start: ${filters.start}` : "",
+      filters.end ? `End: ${filters.end}` : ""
+    ].filter(Boolean).join(" | ") || "No filters";
+
+    const logMessage = await tryWriteActivityLog(
+      createActivityLog(
+        "report_printed",
+        "Printed report",
+        `Rows: ${enrichedTransactions.length} | Total: ${reportTotalAmount.toFixed(2)} | ${appliedFilters}`
+      )
+    );
+    setMessage(logMessage);
+
+    const originalTitle = document.title;
+    document.title = reportFileName();
+
+    const restoreTitle = () => {
+      document.title = originalTitle;
+      window.removeEventListener("afterprint", restoreTitle);
+    };
+
+    window.addEventListener("afterprint", restoreTitle);
+    window.print();
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
+  function openImportFilePicker() {
+    importInputRef.current?.click();
+  }
+
+  function openActivityLogCalendar() {
+    const input = activityLogDateInputRef.current;
+    if (!input) return;
+    const showPicker = (input as HTMLInputElement & { showPicker?: () => void }).showPicker;
+
+    if (typeof showPicker === "function") {
+      showPicker.call(input);
+      return;
+    }
+
+    input.click();
+    input.focus();
+  }
+
+  async function importTransactions(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+    setImporting(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/import-transactions", {
+        method: "POST",
+        body: formData
+      });
+      const result = (await response.json().catch(() => null)) as { importedCount?: number; error?: string } | null;
+
+      if (!response.ok) {
+        setMessage(result?.error || "Could not import transactions.");
+        return;
+      }
+
+      await loadAll();
+      setMessage(`Imported ${result?.importedCount || 0} transactions from ${file.name}.`);
+    } catch {
+      setMessage("Could not import transactions.");
+    } finally {
+      setImporting(false);
+      event.target.value = "";
+    }
+  }
+
+  async function downloadActivityLog(event: ChangeEvent<HTMLInputElement>) {
+    const date = event.target.value;
+    if (!date) return;
+
+    try {
+      const response = await fetch(`/api/activity-log?date=${encodeURIComponent(date)}`);
+
+      if (response.status === 404) {
+        alert("Activity logs not found for selected date.");
+        return;
+      }
+
+      if (!response.ok) {
+        setMessage("Could not download activity log.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `activity-log-${date}.log`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage("");
+    } catch {
+      setMessage("Could not download activity log.");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   if (loading) return <main className="p-6">Loading...</main>;
@@ -258,16 +454,35 @@ export default function Home() {
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-white p-4 shadow-sm">
         <div>
           <h1 className="text-2xl font-semibold">Account Register</h1>
-          <p className="text-sm text-slate-600">File database storage</p>
+          <p className="no-print text-sm text-slate-600">File database storage</p>
         </div>
-        <div className="flex gap-2">
+        <div className="no-print flex gap-2">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={importTransactions}
+          />
+          <input ref={activityLogDateInputRef} type="date" className="hidden" onChange={downloadActivityLog} />
+          <button
+            type="button"
+            onClick={openImportFilePicker}
+            disabled={importing}
+            className="inline-flex items-center gap-2 rounded border border-line px-3 py-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            <Upload size={16} />
+            {importing ? "Importing..." : "Import"}
+          </button>
+          <button type="button" onClick={openActivityLogCalendar} className="inline-flex items-center gap-2 rounded border border-line px-3 py-2"><CalendarDays size={16} />Activity Log</button>
           <button onClick={loadAll} className="inline-flex items-center gap-2 rounded border border-line px-3 py-2"><RefreshCw size={16} />Refresh</button>
+          <button onClick={logout} className="inline-flex items-center gap-2 rounded border border-line px-3 py-2"><LogOut size={16} />Logout</button>
         </div>
       </header>
 
-      {message && <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">{message}</div>}
+      {message && <div className="no-print mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">{message}</div>}
 
-      <section className="mb-5 rounded-lg border border-line bg-white p-4 shadow-sm">
+      <section className="no-print mb-5 rounded-lg border border-line bg-white p-4 shadow-sm">
         <h2 className="mb-3 text-lg font-semibold">Add Transaction</h2>
         <form onSubmit={addTransaction} className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
           <input required type="date" className="rounded border border-line p-2" value={entryForm.date} onChange={(e) => setEntryForm({ ...entryForm, date: e.target.value })} />
@@ -280,7 +495,7 @@ export default function Home() {
         </form>
       </section>
 
-      <section className="mb-5 rounded-lg border border-line bg-white p-4 shadow-sm">
+      <section className="no-print mb-5 rounded-lg border border-line bg-white p-4 shadow-sm">
         <h2 className="mb-3 text-lg font-semibold">Filters & Reports</h2>
         <div className="grid gap-3 md:grid-cols-5">
           <input placeholder="Company Name" className="rounded border border-line p-2" value={filters.companyName} onChange={(e) => setFilters({ ...filters, companyName: e.target.value })} />
@@ -290,8 +505,7 @@ export default function Home() {
           <input type="date" className="rounded border border-line p-2" value={filters.end} onChange={(e) => setFilters({ ...filters, end: e.target.value })} />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button onClick={exportJson} className="inline-flex items-center gap-2 rounded bg-emerald-600 px-3 py-2 text-white"><Download size={16} />Export JSON</button>
-          <button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-white"><Printer size={16} />Print / PDF</button>
+          <button onClick={printReport} className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-white"><Printer size={16} />Print / PDF</button>
         </div>
       </section>
 
@@ -305,17 +519,21 @@ export default function Home() {
             {transactionLimitOptions.map((option) => <option key={option} value={option}>{option} / page</option>)}
           </select>
         </div>
+        <div className="print-only mb-3 text-sm font-semibold">
+          Total Amount: {formatCurrency(reportTotalAmount)}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] border-collapse text-sm">
             <thead className="bg-slate-800 text-white">
-              <tr>{["Sr No", "Date", "Amount", "Company Name", "Receiver", "Site Name", "Work", "Actions"].map((head) => <th key={head} className="p-2 text-left">{head}</th>)}</tr>
+              <tr>{["Sr No", "Date", "Amount", "Company Name", "Receiver", "Site Name", "Work", "Actions"].map((head) => <th key={head} className={`p-2 text-left ${head === "Actions" ? "no-print" : ""}`}>{head}</th>)}</tr>
             </thead>
             <tbody>
-              {visibleTransactions.map((entry, index) => {
+              {enrichedTransactions.map((entry, index) => {
                 const isEditing = editingTransactionId === entry.id;
+                const isVisibleOnScreen = index >= firstVisibleTransactionIndex && index < firstVisibleTransactionIndex + transactionLimit;
                 return (
-                  <tr key={entry.id} className="border-b border-line">
-                    <td className="p-2 font-medium text-slate-600">{(transactionPage - 1) * transactionLimit + index + 1}</td>
+                  <tr key={entry.id} className={`border-b border-line ${isVisibleOnScreen ? "" : "screen-hidden"}`}>
+                    <td className="p-2 font-medium text-slate-600">{index + 1}</td>
                     <td className="p-2">
                       {isEditing ? (
                         <input required type="date" className="w-full rounded border border-line p-2" value={editForm.date} onChange={(event) => setEditForm({ ...editForm, date: event.target.value })} />
@@ -346,7 +564,7 @@ export default function Home() {
                         <input className="w-full rounded border border-line p-2" value={editForm.work} onChange={(event) => setEditForm({ ...editForm, work: event.target.value })} />
                       ) : entry.work}
                     </td>
-                    <td className="p-2">
+                    <td className="no-print p-2">
                       <div className="flex gap-2">
                         {isEditing ? (
                           <>
@@ -367,7 +585,10 @@ export default function Home() {
             </tbody>
           </table>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-1">
+        <div className="print-only mt-3 text-sm font-semibold">
+          Total Amount: {formatCurrency(reportTotalAmount)}
+        </div>
+        <div className="no-print mt-4 flex flex-wrap items-center gap-1">
           {Array.from({ length: transactionPageCount }, (_, index) => index + 1).map((page) => (
             <button
               key={page}
@@ -380,6 +601,7 @@ export default function Home() {
           ))}
         </div>
       </section>
+
     </main>
   );
 }

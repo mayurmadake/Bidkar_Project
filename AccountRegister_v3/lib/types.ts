@@ -1,6 +1,7 @@
 export type Role = "admin" | "member";
 export type TransactionType = "cash" | "upi" | "cheque";
 export type EntryType = "credit" | "debit";
+export type ActivityLogAction = "transaction_created" | "transaction_updated" | "transaction_deleted" | "report_printed";
 
 export type Profile = {
   id: string;
@@ -55,6 +56,20 @@ export type Transaction = {
   vendor_id: string;
   site_id: string;
   description: string | null;
+  created_by: string;
+  created_at: string;
+};
+
+export type ActivityLog = {
+  id: string;
+  action: ActivityLogAction;
+  label: string;
+  details: string;
+  transaction_id: string | null;
+  amount: number | null;
+  company_name: string | null;
+  receiver: string | null;
+  site_name: string | null;
   created_by: string;
   created_at: string;
 };

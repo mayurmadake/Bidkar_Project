@@ -11,7 +11,8 @@ This version uses a permanent local file database, so it does not need Supabase,
 - Opening balance confirmation for every company when the register opens
 - "Yes" uses a manually entered opening balance
 - "No" uses yesterday's net balance as the opening balance
-- Summary totals, JSON export and printable PDF-style report
+- Summary totals and printable PDF-style report
+- Daily activity log files for add, edit, delete and report print actions
 
 ## Setup
 
@@ -43,6 +44,25 @@ Data is saved on disk in this project folder:
 data/account-register.json
 ```
 
+For production, keep the database file outside the deployed source folder and set:
+
+```text
+ACCOUNT_REGISTER_DB_PATH=/persistent/account-register/account-register.json
+```
+
+Activity logs are saved as daily `.log` files. By default they are written to:
+
+```text
+data/activity-logs/YYYY-MM-DD.log
+```
+
+For production, keep logs outside the deployed source folder and set:
+
+```text
+ACCOUNT_REGISTER_LOG_DIR=/persistent/account-register/activity-logs
+ACCOUNT_REGISTER_TIME_ZONE=Asia/Kolkata
+```
+
 This means entries remain available after closing the browser and opening it again. The data also remains if browser cache/site storage is cleared, because entries are not stored in the browser.
 
 Important notes:
@@ -51,8 +71,12 @@ Important notes:
 - deleting this file deletes the register database
 - data is stored on the computer/server running `npm run dev`
 - member permissions are not enforced by a server
+- the live database file is ignored by git and should not be deployed from development
+- activity log files are ignored by git and should not be deployed from development
+- deployment must preserve the production `data/account-register.json` file
+- production transactions dated `2026-10-01` through `2026-10-03` are protected from stale full-database saves
 
-Use **Export JSON** regularly if you want an extra backup copy of the register.
+Back up `data/account-register.json` regularly if you want an extra copy of the register.
 
 ## Optional Supabase Files
 

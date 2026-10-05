@@ -19,12 +19,40 @@ textarea {
   font: inherit;
 }
 
+.print-only,
+.screen-hidden {
+  display: none !important;
+}
+
 @media print {
   .no-print {
     display: none !important;
   }
 
+  .print-only {
+    display: block !important;
+  }
+
+  .screen-hidden {
+    display: table-row !important;
+  }
+
   body {
     background: white;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  header,
+  section {
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  table {
+    min-width: 0 !important;
   }
 }
